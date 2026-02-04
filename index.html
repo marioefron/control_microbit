@@ -67,6 +67,11 @@
             <button onclick="connect()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-2xl flex items-center justify-center gap-3 font-bold text-lg shadow-lg shadow-blue-900/20">
                 Conectar micro:bit
             </button>
+            <p class="text-slate-500 text-[11px] mt-4 leading-relaxed">
+                Si no aparece la placa: <br>
+                1. Verifica que tenga pilas o esté conectada. <br>
+                2. Asegúrate de que el Bluetooth del PC/Móvil esté ON.
+            </p>
         </div>
 
         <!-- Sección de controles (se muestra solo tras conectar) -->
@@ -106,7 +111,6 @@
             container.appendChild(led);
         }
 
-        // Función para iluminar u oscurecer la matriz en pantalla
         function updateLeds(on) {
             const leds = document.querySelectorAll('.led');
             leds.forEach(led => {
@@ -115,14 +119,12 @@
             });
         }
 
-        // Muestra mensajes informativos o de error al usuario
         function showError(msg) {
             const errDiv = document.getElementById('errorMessage');
             errDiv.textContent = msg;
             errDiv.classList.remove('hidden');
         }
 
-        // Función principal para emparejar y conectar la micro:bit
         async function connect() {
             document.getElementById('errorMessage').classList.add('hidden');
             
@@ -132,9 +134,12 @@
             }
 
             try {
-                // Solicitar dispositivo con filtro por nombre
+                // He ampliado el filtro para que sea más fácil encontrar el dispositivo
+                // Aceptamos cualquier dispositivo que se identifique como micro:bit
                 device = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'BBC micro:bit' }],
+                    filters: [
+                        { namePrefix: 'BBC micro:bit' }
+                    ],
                     optionalServices: [UART_SERVICE_UUID]
                 });
 
@@ -142,38 +147,35 @@
                 const service = await server.getPrimaryService(UART_SERVICE_UUID);
                 characteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
 
-                // Actualizar Interfaz de Usuario
                 document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
                 document.getElementById('statusText').textContent = 'Conectado';
                 document.getElementById('connectSection').classList.add('hidden');
                 document.getElementById('controlSection').classList.remove('hidden');
 
-                // Detectar si la placa se apaga o se aleja
                 device.addEventListener('gattserverdisconnected', onDisconnected);
             } catch (err) {
                 console.error(err);
-                if (window.location.protocol !== 'https:') {
-                    showError("Error: El Bluetooth requiere HTTPS. Instala un certificado SSL en tu hosting.");
+                if (err.name === 'NotFoundError') {
+                    showError("No se seleccionó ningún dispositivo o no se encontró la micro:bit.");
+                } else if (window.location.protocol !== 'https:') {
+                    showError("Error: El Bluetooth requiere HTTPS (Conexión Segura).");
                 } else {
-                    showError("Error de conexión: " + err.message);
+                    showError("Error: " + err.message);
                 }
             }
         }
 
-        // Envía comandos de texto ("1" o "0") a través de Bluetooth
         async function sendCommand(val) {
             if (!characteristic) return;
             try {
                 const encoder = new TextEncoder();
-                // Escribir el valor codificado en la característica UART de la placa
-                await characteristic.writeValue(encoder.encode(val));
+                await characteristic.writeValue(encoder.encode(val + "\n")); // Añadimos salto de línea por si el código microbit lo requiere
                 updateLeds(val === '1');
             } catch (err) {
                 showError("Error al enviar comando: " + err.message);
             }
         }
 
-        // Restablece la UI cuando se pierde la conexión
         function onDisconnected() {
             document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-red-500';
             document.getElementById('statusText').textContent = 'Desconectado';
@@ -182,7 +184,6 @@
             updateLeds(false);
         }
 
-        // Desconexión manual por parte del usuario
         function disconnect() {
             if (device && device.gatt.connected) {
                 device.gatt.disconnect();

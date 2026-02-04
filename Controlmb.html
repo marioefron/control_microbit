@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Meta tags para evitar que el navegador guarde una versión antigua en caché durante las pruebas -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <title>micro:bit Remote Control</title>
+    <!-- Importación de Tailwind CSS para el diseño visual -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos personalizados para la rejilla de LEDs */
+        .led-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+        }
+        .led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #1e293b;
+            transition: all 0.3s ease;
+        }
+        /* Clase que se activa cuando el comando "encender" es enviado */
+        .led.active {
+            background-color: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4 font-sans text-center">
+
+    <div class="max-w-md w-full bg-slate-800 rounded-3xl p-8 shadow-2xl border border-slate-700">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                micro:bit Remote
+            </h1>
+            <p class="text-slate-400 mt-2">Control vía Bluetooth (Web BLE)</p>
+        </header>
+
+        <!-- Representación visual de la placa micro:bit -->
+        <div class="relative mx-auto w-48 h-40 bg-slate-700 rounded-xl mb-8 flex flex-col items-center justify-center p-4 shadow-inner border-4 border-slate-600">
+            <div id="ledContainer" class="led-grid">
+                <!-- Los 25 LEDs se generan dinámicamente con JavaScript -->
+            </div>
+            <div class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 italic">A</div>
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 italic">B</div>
+        </div>
+
+        <!-- Indicador de estado de conexión -->
+        <div class="flex items-center justify-center gap-2 mb-6">
+            <div id="statusDot" class="w-2 h-2 rounded-full bg-red-500"></div>
+            <span id="statusText" class="text-sm font-medium uppercase tracking-wider text-slate-300">Desconectado</span>
+        </div>
+
+        <!-- Contenedor para mensajes de error (oculto por defecto) -->
+        <div id="errorMessage" class="hidden mb-6 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-200 text-sm text-left">
+        </div>
+
+        <!-- Sección de conexión inicial -->
+        <div id="connectSection">
+            <button onclick="connect()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-2xl flex items-center justify-center gap-3 font-bold text-lg shadow-lg shadow-blue-900/20">
+                Conectar micro:bit
+            </button>
+        </div>
+
+        <!-- Sección de controles (se muestra solo tras conectar) -->
+        <div id="controlSection" class="hidden space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="sendCommand('1')" class="py-6 bg-slate-700 hover:bg-green-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg">
+                    <span class="font-bold uppercase">Encender</span>
+                </button>
+                <button onclick="sendCommand('0')" class="py-6 bg-slate-700 hover:bg-red-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg">
+                    <span class="font-bold uppercase">Apagar</span>
+                </button>
+            </div>
+            
+            <button onclick="disconnect()" class="w-full py-3 bg-transparent border border-slate-600 hover:bg-slate-700 text-slate-400 rounded-xl text-sm transition-colors">
+                Desconectar
+            </button>
+        </div>
+
+        <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-[10px] uppercase tracking-widest">
+            Requiere HTTPS y navegador Chrome/Edge
+        </footer>
+    </div>
+
+    <script>
+        let device;
+        let characteristic;
+
+        // UUIDs específicos del servicio UART de la micro:bit
+        const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const UART_TX_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+        // Inicialización de la matriz de LEDs visual
+        const container = document.getElementById('ledContainer');
+        for (let i = 0; i < 25; i++) {
+            const led = document.createElement('div');
+            led.className = 'led';
+            container.appendChild(led);
+        }
+
+        // Función para iluminar u oscurecer la matriz en pantalla
+        function updateLeds(on) {
+            const leds = document.querySelectorAll('.led');
+            leds.forEach(led => {
+                if (on) led.classList.add('active');
+                else led.classList.remove('active');
+            });
+        }
+
+        // Muestra mensajes informativos o de error al usuario
+        function showError(msg) {
+            const errDiv = document.getElementById('errorMessage');
+            errDiv.textContent = msg;
+            errDiv.classList.remove('hidden');
+        }
+
+        // Función principal para emparejar y conectar la micro:bit
+        async function connect() {
+            document.getElementById('errorMessage').classList.add('hidden');
+            
+            if (!navigator.bluetooth) {
+                showError("Tu navegador no soporta Bluetooth Web o no tienes una conexión segura HTTPS.");
+                return;
+            }
+
+            try {
+                // Solicitar dispositivo con filtro por nombre
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'BBC micro:bit' }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(UART_SERVICE_UUID);
+                characteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+
+                // Actualizar Interfaz de Usuario
+                document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
+                document.getElementById('statusText').textContent = 'Conectado';
+                document.getElementById('connectSection').classList.add('hidden');
+                document.getElementById('controlSection').classList.remove('hidden');
+
+                // Detectar si la placa se apaga o se aleja
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+            } catch (err) {
+                console.error(err);
+                if (window.location.protocol !== 'https:') {
+                    showError("Error: El Bluetooth requiere HTTPS. Instala un certificado SSL en tu hosting.");
+                } else {
+                    showError("Error de conexión: " + err.message);
+                }
+            }
+        }
+
+        // Envía comandos de texto ("1" o "0") a través de Bluetooth
+        async function sendCommand(val) {
+            if (!characteristic) return;
+            try {
+                const encoder = new TextEncoder();
+                // Escribir el valor codificado en la característica UART de la placa
+                await characteristic.writeValue(encoder.encode(val));
+                updateLeds(val === '1');
+            } catch (err) {
+                showError("Error al enviar comando: " + err.message);
+            }
+        }
+
+        // Restablece la UI cuando se pierde la conexión
+        function onDisconnected() {
+            document.getElementById('statusDot').className = 'w-2 h-2 rounded-full bg-red-500';
+            document.getElementById('statusText').textContent = 'Desconectado';
+            document.getElementById('connectSection').classList.remove('hidden');
+            document.getElementById('controlSection').classList.add('hidden');
+            updateLeds(false);
+        }
+
+        // Desconexión manual por parte del usuario
+        function disconnect() {
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+            }
+        }
+    </script>
+</body>
+</html>

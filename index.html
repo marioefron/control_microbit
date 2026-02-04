@@ -31,6 +31,10 @@
             box-shadow: 0 0 10px #ef4444;
             transform: scale(1.1);
         }
+        /* Evitar zoom al tocar botones en móviles */
+        button {
+            touch-action: manipulation;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4 font-sans text-center">
@@ -67,31 +71,34 @@
             <button onclick="connect()" class="w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-2xl flex items-center justify-center gap-3 font-bold text-lg shadow-lg shadow-blue-900/20">
                 Conectar micro:bit
             </button>
-            <p class="text-slate-500 text-[11px] mt-4 leading-relaxed">
-                Si no aparece la placa: <br>
-                1. Verifica que tenga pilas o esté conectada. <br>
-                2. Asegúrate de que el Bluetooth del PC/Móvil esté ON.
-            </p>
+            <div id="mobileTips" class="text-slate-500 text-[11px] mt-4 leading-relaxed text-left bg-slate-900/50 p-3 rounded-xl border border-slate-700/50">
+                <p class="font-bold mb-1 text-slate-400">Tips para móviles:</p>
+                <ul class="list-disc ml-4 space-y-1">
+                    <li>Asegúrate de tener el <strong>GPS/Ubicación</strong> activado (Android).</li>
+                    <li>Usa <strong>Chrome</strong> en Android.</li>
+                    <li>En iOS (iPhone), necesitas usar la app <strong>Bluefy</strong>.</li>
+                </ul>
+            </div>
         </div>
 
         <!-- Sección de controles (se muestra solo tras conectar) -->
         <div id="controlSection" class="hidden space-y-4">
             <div class="grid grid-cols-2 gap-4">
-                <button onclick="sendCommand('1')" class="py-6 bg-slate-700 hover:bg-green-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg">
-                    <span class="font-bold uppercase">Encender</span>
+                <button onclick="sendCommand('1')" class="py-8 bg-slate-700 hover:bg-green-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-90 shadow-lg border-b-4 border-slate-900 active:border-b-0">
+                    <span class="font-bold uppercase text-xl">Encender</span>
                 </button>
-                <button onclick="sendCommand('0')" class="py-6 bg-slate-700 hover:bg-red-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 shadow-lg">
-                    <span class="font-bold uppercase">Apagar</span>
+                <button onclick="sendCommand('0')" class="py-8 bg-slate-700 hover:bg-red-600 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all active:scale-90 shadow-lg border-b-4 border-slate-900 active:border-b-0">
+                    <span class="font-bold uppercase text-xl">Apagar</span>
                 </button>
             </div>
             
-            <button onclick="disconnect()" class="w-full py-3 bg-transparent border border-slate-600 hover:bg-slate-700 text-slate-400 rounded-xl text-sm transition-colors">
+            <button onclick="disconnect()" class="w-full py-3 bg-transparent border border-slate-600 hover:bg-slate-700 text-slate-400 rounded-xl text-sm transition-colors mt-4">
                 Desconectar
             </button>
         </div>
 
         <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-[10px] uppercase tracking-widest">
-            Requiere HTTPS y navegador Chrome/Edge
+            Requiere HTTPS y navegador compatible
         </footer>
     </div>
 
@@ -129,7 +136,7 @@
             document.getElementById('errorMessage').classList.add('hidden');
             
             if (!navigator.bluetooth) {
-                showError("Tu navegador no soporta Bluetooth Web o no tienes una conexión segura HTTPS.");
+                showError("Tu navegador no soporta Bluetooth Web. En iPhone usa Bluefy, en Android usa Chrome/Edge con HTTPS.");
                 return;
             }
 
@@ -156,9 +163,9 @@
             } catch (err) {
                 console.error(err);
                 if (err.name === 'NotFoundError') {
-                    showError("No se seleccionó ningún dispositivo o no se encontró la micro:bit.");
+                    showError("No se encontró la placa. Revisa que el Bluetooth y la Ubicación estén activos.");
                 } else if (window.location.protocol !== 'https:') {
-                    showError("Error: El Bluetooth requiere HTTPS (Conexión Segura).");
+                    showError("Error: El Bluetooth requiere HTTPS. GitHub Pages debería dártelo automáticamente.");
                 } else {
                     showError("Error: " + err.message);
                 }
@@ -169,10 +176,11 @@
             if (!characteristic) return;
             try {
                 const encoder = new TextEncoder();
-                await characteristic.writeValue(encoder.encode(val + "\n")); // Añadimos salto de línea por si el código microbit lo requiere
+                // Enviamos el comando con un salto de línea (\n) que es el estándar de UART
+                await characteristic.writeValue(encoder.encode(val + "\n"));
                 updateLeds(val === '1');
             } catch (err) {
-                showError("Error al enviar comando: " + err.message);
+                showError("Error al enviar: " + err.message);
             }
         }
 
@@ -189,6 +197,14 @@
                 device.gatt.disconnect();
             }
         }
+
+        // Detectar si el usuario está en iOS para mostrar un mensaje específico
+        window.onload = () => {
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            if (isIOS && !navigator.bluetooth) {
+                showError("Estás en iOS. Para conectar, por favor abre esta URL dentro de la aplicación 'Bluefy' disponible en la App Store.");
+            }
+        };
     </script>
 </body>
 </html>
